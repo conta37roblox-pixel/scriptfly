@@ -1,0 +1,127 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+
+-- CONFIGURAÇÕES
+local FLIGHT_SPEED = 50          -- Velocidade do voo
+local FLIGHT_SMOOTHNESS = 0.1    -- Quanto menor (0.1 a 0.5), mais suave (inércia)
+local TOGGLE_KEY = Enum.KeyCode.E
+
+-- Variáveis de controle
+local isFlying = false
+local bodyGyro = nil
+local bodyVel = nil
+local connection = nil
+local movement = {Forward = 0, Backward = 0, Left = 0, Right = 0, Up = 0, Down = 0}
+
+-- Função para iniciar o voo
+local function startFlight()
+	local character = player.Character
+	if not character then return end
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character:FindFirstChild("Humanoid")
+
+	if not rootPart or not humanoid then return end
+
+	isFlying = true
+
+	-- Desativa a física de queda/tropeço
+	humanoid.PlatformStand = true 
+
+	-- Cria o estabilizador (Giroscópio) para manter o player olhando para onde a câmera aponta
+	bodyGyro = Instance.new("BodyGyro")
+	bodyGyro.P = 30000 -- Força de rotação
+	bodyGyro.D = 1000  -- Amortecimento
+	bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
+	bodyGyro.CFrame = rootPart.CFrame
+	bodyGyro.Parent = rootPart
+
+	-- Cria o propulsor (Velocidade)
+	bodyVel = Instance.new("BodyVelocity")
+	bodyVel.Velocity = Vector3.new(0, 0, 0)
+	bodyVel.MaxForce = Vector3.new(400000, 400000, 400000)
+	bodyVel.P = 10000
+	bodyVel.Parent = rootPart
+
+	-- Loop de atualização do voo (roda a cada frame)
+	connection = RunService.RenderStepped:Connect(function()
+		if not character or not rootPart then return end
+
+		-- Calcula a direção da câmera
+		local camCFrame = camera.CFrame
+		bodyGyro.CFrame = camCFrame -- Personagem olha para onde a câmera olha
+
+		-- Define os vetores de movimento baseados na câmera
+		local moveDir = Vector3.new(
+			movement.Right - movement.Left,
+			movement.Up - movement.Down,
+			movement.Backward - movement.Forward
+		)
+
+		-- Transforma a direção local em global baseada na câmera
+		local finalDir = camCFrame:VectorToWorldSpace(moveDir)
+
+		-- Verifica se o player está apertando algo para mover, senão para suavemente
+		if moveDir.Magnitude > 0 then
+			moveDir = moveDir.Unit * FLIGHT_SPEED
+			-- Interpolação Linear (Lerp) para suavidade
+			bodyVel.Velocity = bodyVel.Velocity:Lerp(finalDir * FLIGHT_SPEED, FLIGHT_SMOOTHNESS)
+		else
+			-- Freio suave
+			bodyVel.Velocity = bodyVel.Velocity:Lerp(Vector3.new(0,0,0), FLIGHT_SMOOTHNESS)
+		end
+	end)
+end
+
+-- Função para parar o voo
+local function stopFlight()
+	isFlying = false
+
+	local character = player.Character
+	if character and character:FindFirstChild("Humanoid") then
+		character.Humanoid.PlatformStand = false
+	end
+
+	if bodyGyro then bodyGyro:Destroy() end
+	if bodyVel then bodyVel:Destroy() end
+	if connection then connection:Disconnect() end
+end
+
+-- Detectar teclas pressionadas
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	if input.KeyCode == TOGGLE_KEY then
+		if isFlying then
+			stopFlight()
+		else
+			startFlight()
+		end
+	elseif input.KeyCode == Enum.KeyCode.W then movement.Forward = 1
+	elseif input.KeyCode == Enum.KeyCode.S then movement.Backward = 1
+	elseif input.KeyCode == Enum.KeyCode.A then movement.Left = 1
+	elseif input.KeyCode == Enum.KeyCode.D then movement.Right = 1
+	elseif input.KeyCode == Enum.KeyCode.Space then movement.Up = 1
+	elseif input.KeyCode == Enum.KeyCode.LeftControl then movement.Down = 1
+	end
+end)
+
+-- Detectar teclas soltas
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.W then movement.Forward = 0
+	elseif input.KeyCode == Enum.KeyCode.S then movement.Backward = 0
+	elseif input.KeyCode == Enum.KeyCode.A then movement.Left = 0
+	elseif input.KeyCode == Enum.KeyCode.D then movement.Right = 0
+	elseif input.KeyCode == Enum.KeyCode.Space then movement.Up = 0
+	elseif input.KeyCode == Enum.KeyCode.LeftControl then movement.Down = 0
+	end
+end)
+
+-- Segurança: Se o personagem morrer, resetar o voo
+player.CharacterRemoving:Connect(function()
+	stopFlight()
+end)q
